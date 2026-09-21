@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const _ = require('lodash');
 const config = require('./config');
 const { createDb, hashPassword, all, allBound } = require('./db');
+require('dotenv').config();
 
 async function createApp() {
   const app = express();
