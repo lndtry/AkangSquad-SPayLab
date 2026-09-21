@@ -1,13 +1,13 @@
 name: DevSecOps Pipeline
-
+ 
 on:
   push:
   pull_request:
-
+ 
 # Prinsip least privilege: workflow hanya boleh membaca isi repo
 permissions:
   contents: read
-
+ 
 jobs:
   # ------------------------------------------------------------
   # CI dasar: install -> unit test.  (sudah HIJAU dari awal)
@@ -16,6 +16,15 @@ jobs:
   build-test:
     name: Build & Unit Test
     runs-on: ubuntu-latest
+    # Setelah Junior memindahkan secret ke process.env, test butuh nilainya.
+    # Samakan NAMA variabel dengan yang dipakai Junior di src/config.js.
+    # Opsi 1 (dianjurkan): nilai dari GitHub Secrets
+    #   -> Settings > Secrets and variables > Actions > New repository secret
+    # Opsi 2: nilai acak khusus test (tulis langsung di bawah ini)
+    # Aktifkan (hapus tanda #) SETELAH PR perbaikan secret dari Junior masuk.
+    # env:
+    #   JWT_SECRET: ${{ secrets.JWT_SECRET }}
+    #   PAYMENT_GATEWAY_API_KEY: ${{ secrets.PAYMENT_GATEWAY_API_KEY }}
     steps:
       # Action di-pin ke commit SHA (bukan tag) agar tidak bisa diganti diam-diam
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -25,8 +34,69 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-
-  # >>> TAHAP A: tambahkan job secret-scan di bawah ini
-  # >>> TAHAP B: tambahkan job dependency-scan
-  # >>> TAHAP C: tambahkan job sast
-  # >>> TAHAP D: tambahkan job deploy (security gate)
+ 
+  # ------------------------------------------------------------
+  # TAHAP A - Commit: Secret scanning (Gitleaks)
+  # Memindai isi file di working tree. Job MERAH selama ada secret
+  # ter-hardcode (biasanya src/config.js), HIJAU setelah dipindah ke env.
+  # ------------------------------------------------------------
+  secret-scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Install Gitleaks (versi & checksum di-pin)
+        run: |
+          curl -sSL -o gitleaks.tgz https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz
+          echo "ba6dbb656933921c775ee5a2d1c13a91046e7952e9d919f9bac4cec61d628e7d  gitleaks.tgz" | sha256sum -c -
+          tar xzf gitleaks.tgz gitleaks
+      - name: Scan secret
+        # --no-git: pindai file saat ini, bukan seluruh riwayat commit.
+        # Tanpa flag ini job tetap merah selamanya karena secret lama
+        # masih ada di riwayat git (lihat pertanyaan laporan slide 7).
+        run: ./gitleaks detect --no-git --source . --verbose --redact
+ 
+  # ------------------------------------------------------------
+  # TAHAP B - Build: Dependency scanning (npm audit)
+  # Tingkat minimum yang menggagalkan job ditentukan Security Champion.
+  # ------------------------------------------------------------
+  dependency-scan:
+    name: Dependency Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: npm audit
+        run: npm audit --audit-level=high
+ 
+  # ------------------------------------------------------------
+  # TAHAP C - Test: SAST (Semgrep)
+  # Memindai pola kode berbahaya sesuai .semgrep/lab-rules.yml
+  # ------------------------------------------------------------
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Install Semgrep
+        run: pip install semgrep==1.177.0
+      - name: Semgrep scan
+        run: semgrep scan --config .semgrep/lab-rules.yml --error --metrics=off
+ 
+  # ------------------------------------------------------------
+  # TAHAP D - Deploy: Security gate
+  # Deploy hanya jalan jika SEMUA job di needs berhasil.
+  # Jika salah satu merah, deploy otomatis di-SKIP.
+  # ------------------------------------------------------------
+  deploy:
+    name: Deploy (staging)
+    runs-on: ubuntu-latest
+    needs: [build-test, secret-scan, dependency-scan, sast]
+    environment: staging
+    steps:
+      - run: echo "Semua security check lolos. Deploy ke staging..."
+ 
