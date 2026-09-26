@@ -11,7 +11,7 @@ module.exports = {
   jwtSecret: process.env.JWT_SECRET,
 
   // API key payment gateway (palsu)
-  paymentGatewayApiKey: 'spk_live_9f8e7d6c5b4a3928170e6f5d4c3b2a19',
+  paymentGatewayApiKey: process.env.PAYMENT_GATEWAY_API_KEY,
 
   // Pengaturan default aplikasi
   defaultSettings: {
