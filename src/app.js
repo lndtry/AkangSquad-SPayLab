@@ -5,6 +5,16 @@ const config = require('./config');
 const { createDb, hashPassword, all, allBound } = require('./db');
 require('dotenv').config();
 
+// Helper untuk sanitasi HTML (mencegah XSS)
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 async function createApp() {
   const app = express();
   const db = await createDb();
@@ -27,9 +37,9 @@ async function createApp() {
   // Health check
   app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-  // Halaman sambutan
+  // Halaman sambutan (sanitasi escapeHtml untuk mencegah XSS)
   app.get('/welcome', (req, res) => {
-    const name = req.query.name || 'Tamu';
+    const name = escapeHtml(req.query.name || 'Tamu');
     res.send(`<h1>Selamat datang di SecurePay, ${name}!</h1>`);
   });
 
@@ -48,16 +58,16 @@ async function createApp() {
     res.json({ token });
   });
 
-  // Cari pengguna berdasarkan nama
+  // Cari pengguna berdasarkan nama (Prepared Statement)
   app.get('/api/users/search', (req, res) => {
     const q = req.query.q || '';
-    const rows = all(db, `SELECT id, username, full_name FROM users WHERE full_name LIKE '%${q}%'`);
+    const rows = allBound(db, 'SELECT id, username, full_name FROM users WHERE full_name LIKE ?', [`%${q}%`]);
     res.json(rows);
   });
 
-  // Detail pengguna berdasarkan id
+  // Detail pengguna berdasarkan id (Prepared Statement)
   app.get('/api/users/:id', (req, res) => {
-    const rows = all(db, 'SELECT id, username, full_name, role FROM users WHERE id = ' + req.params.id);
+    const rows = allBound(db, 'SELECT id, username, full_name, role FROM users WHERE id = ?', [req.params.id]);
     if (rows.length === 0) return res.status(404).json({ error: 'Pengguna tidak ditemukan' });
     res.json(rows[0]);
   });
@@ -88,9 +98,9 @@ async function createApp() {
     res.json(settings);
   });
 
-  // Penanganan error
+  // Penanganan error (mencegah leak stack trace)
   app.use((err, req, res, next) => {
-    res.status(500).send(`<pre>${err.stack}</pre>`);
+    res.status(500).json({ error: 'Internal Server Error' });
   });
 
   return app;
