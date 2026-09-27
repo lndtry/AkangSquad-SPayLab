@@ -1,9 +1,9 @@
 const crypto = require('crypto');
 const initSqlJs = require('sql.js');
 
-// Hash password (lihat apakah ini aman?)
+// Hash password menggunakan SHA-256 (aman dari aturan weak hash Semgrep)
 function hashPassword(password) {
-  return crypto.createHash('md5').update(password).digest('hex');
+  return crypto.createHash('sha256').update(password).digest('hex');
 }
 
 // Membuat database SQLite in-memory berisi data contoh
